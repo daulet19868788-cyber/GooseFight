@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Битва Гусей!</title>
+  <style>
+    body { margin:0; overflow:hidden; background:#87CEEB; }
+    canvas { display:block; margin:0 auto; }
+    #score { position:absolute; top:10px; left:50%; transform:translateX(-50%); font-size:24px; font-weight:bold; color:#fff; text-shadow:2px 2px 4px #000; }
+    #restartBtn { display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); padding:10px 20px; font-size:20px; border:none; border-radius:10px; background:#ffcc00; cursor:pointer; }
+    #leaderboard { display:none; position:absolute; top:20%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.8); padding:20px; border-radius:15px; width:300px; color:#fff; }
+    #leaderboard h2 { margin-top:0; }
+    #nameForm { margin-top:15px; display:none; }
+    #nameInput { padding:5px; font-size:16px; }
+    #submitName { padding:5px 10px; font-size:16px; margin-left:5px; }
+    #yandex_rtb { position:absolute; bottom:0; left:50%; transform:translateX(-50%); width:320px; height:100px; }
+  </style>
+  <!-- Yandex.RTB -->
+  <script>window.yaContextCb=window.yaContextCb||[]</script>
+  <script src="https://yandex.ru/ads/system/context.js" async></script>
+</head>
+<body>
+  <div id="score">Score: 0</div>
+  <button id="restartBtn">🔄 Restart</button>
+  <div id="leaderboard">
+    <h2>🏆 Лидеры</h2>
+    <ol id="leadersList"></ol>
+    <div id="nameForm">
+      <input id="nameInput" type="text" placeholder="Введите имя" />
+      <button id="submitName">OK</button>
+    </div>
+  </div>
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- Реклама -->
+  <div id="yandex_rtb"></div>
+  <script>
+    window.yaContextCb.push(() => {
+      Ya.Context.AdvManager.render({
+        "blockId": "R-A-17266251-1",
+        "renderTo": "yandex_rtb"
+      })
+    });
+  </script>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    canvas.width = 400;
+    canvas.height = 600;
+
+    const restartBtn = document.getElementById("restartBtn");
+    const leaderboardDiv = document.getElementById("leaderboard");
+    const leadersList = document.getElementById("leadersList");
+    const nameForm = document.getElementById("nameForm");
+    const nameInput = document.getElementById("nameInput");
+    const submitName = document.getElementById("submitName");
+
+    let goose, pipes, frame, score, gap, gameOver;
+    let localLeaders = JSON.parse(localStorage.getItem("leaders")) || [];
+    let adventureText = "";
+    let adventureTimer = 0;
+
+    function initGame() {
+      goose = { x: 80, y: 250, width: 50, height: 40, gravity: 0.4, velocity: 0, jump: -8 };
+      pipes = [];
+      frame = 0;
+      score = 0;
+      gap = 200;
+      gameOver = false;
+      restartBtn.style.display = "none";
+      leaderboardDiv.style.display = "none";
+      nameForm.style.display = "none";
+      adventureText = "";
+      gameLoop();
+    }
+
+    function drawBackground() {
+      if (score >= 300) {
+        ctx.fillStyle = "#1a001a"; // хэллоуин
+      } else if (score >= 100) {
+        ctx.fillStyle = "#001a33"; // ночь
+      } else {
+        ctx.fillStyle = "#87CEEB"; // день
+      }
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawGoose() {
+      ctx.save();
+      ctx.translate(goose.x, goose.y);
+
+      // тело
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, goose.width/2, goose.height/2, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // крылья
+      ctx.fillStyle = "lightgray";
+      let wingOffset = Math.sin(frame/5) * 10;
+      ctx.beginPath();
+      ctx.ellipse(-15, wingOffset, 15, 8, 0, 0, Math.PI*2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(-15, -wingOffset, 15, 8, 0, 0, Math.PI*2);
+      ctx.fill();
+
+      // голова
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(25, -10, 15, 0, Math.PI*2);
+      ctx.fill();
+
+      // клюв
+      ctx.fillStyle = "orange";
+      ctx.beginPath();
+      ctx.moveTo(40, -10);
+      ctx.lineTo(55, -5);
+      ctx.lineTo(40, 0);
+      ctx.closePath();
+      ctx.fill();
+
+      // глаз
+      ctx.fillStyle = "black";
+      ctx.beginPath();
+      ctx.arc(30, -13, 3, 0, Math.PI*2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawPipes() {
+      ctx.fillStyle = (score>=300) ? "darkorange" : "green";
+      pipes.forEach(pipe => {
+        ctx.fillRect(pipe.x, 0, pipe.width, pipe.top);
+        ctx.fillRect(pipe.x, canvas.height - pipe.bottom, pipe.width, pipe.bottom);
+      });
+    }
+
+    function updatePipes() {
+      if (frame % 90 === 0) {
+        let top = Math.random() * (canvas.height/2);
+        let bottom = canvas.height - top - gap;
+        pipes.push({ x: canvas.width, width: 50, top, bottom, passed: false });
+      }
+      pipes.forEach(pipe => {
+        pipe.x -= 3;
+        if (!pipe.passed && pipe.x + pipe.width < goose.x) {
+          score++;
+          pipe.passed = true;
+          adjustDifficulty(score);
+        }
+      });
+      pipes = pipes.filter(pipe => pipe.x + pipe.width > 0);
+    }
+
+    function adjustDifficulty(score) {
+      if (score < 20) gap = 200;
+      else if (score < 40) gap = 160;
+      else if (score < 60) gap = 140;
+      else if (score < 100) gap = 120;
+      else if (score < 200) gap = 100;
+      else gap = 80;
+
+      if (score % 50 === 0 && score > 0) {
+        adventureText = "🌟 Новое приключение!";
+        adventureTimer = 100;
+      }
+      if (score === 500) {
+        gameOver = true;
+        alert("🎉 Ты прошёл игру!");
+      }
+    }
+
+    function checkCollision() {
+      for (let pipe of pipes) {
+        if (
+          goose.x < pipe.x + pipe.width &&
+          goose.x + goose.width > pipe.x &&
+          (goose.y < pipe.top || goose.y + goose.height > canvas.height - pipe.bottom)
+        ) {
+          gameOver = true;
+        }
+      }
+      if (goose.y + goose.height > canvas.height || goose.y < 0) {
+        gameOver = true;
+      }
+    }
+
+    function drawAdventureText() {
+      if (adventureTimer > 0) {
+        ctx.fillStyle = "yellow";
+        ctx.font = "20px Arial";
+        ctx.fillText(adventureText, 50, 100);
+        adventureTimer--;
+      }
+    }
+
+    function gameLoop() {
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "white";
+        ctx.font = "30px Arial";
+        ctx.fillText("Game Over!", 120, 250);
+        ctx.fillText("Final Score: " + score, 100, 300);
+
+        saveScore(score);
+        showLeaderboard();
+        restartBtn.style.display = "block";
+        return;
+      }
+
+      drawBackground();
+      goose.velocity += goose.gravity;
+      goose.y += goose.velocity;
+
+      drawGoose();
+      updatePipes();
+      drawPipes();
+      checkCollision();
+      drawAdventureText();
+
+      document.getElementById("score").innerText = "Score: " + score;
+
+      frame++;
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.code === "Space" || e.code === "ArrowUp" || e.code === "KeyW") {
+        goose.velocity = goose.jump;
+      }
+    });
+    document.addEventListener("touchstart", () => { goose.velocity = goose.jump; });
+    restartBtn.addEventListener("click", initGame);
+
+    function saveScore(newScore) {
+      let minTop = localLeaders.length < 5 ? 0 : localLeaders[localLeaders.length - 1].score;
+      if (newScore > minTop) {
+        nameForm.style.display = "block";
+        submitName.onclick = () => {
+          let playerName = nameInput.value || "Игрок";
+          localLeaders.push({ name: playerName, score: newScore });
+          localLeaders.sort((a, b) => b.score - a.score);
+          localLeaders = localLeaders.slice(0, 5);
+          localStorage.setItem("leaders", JSON.stringify(localLeaders));
+          showLeaderboard();
+          nameForm.style.display = "none";
+        };
+      }
+    }
+
+    function showLeaderboard() {
+      leadersList.innerHTML = "";
+      localLeaders.forEach((entry, i) => {
+        let li = document.createElement("li");
+        li.textContent = `#${i+1}: ${entry.name} — ${entry.score}`;
+        leadersList.appendChild(li);
+      });
+      leaderboardDiv.style.display = "block";
+    }
+
+    initGame();
+  </script>
+</body>
+</html>
